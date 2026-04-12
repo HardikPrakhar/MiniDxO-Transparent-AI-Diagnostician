@@ -1,0 +1,16 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Env variables
+.env
+
+# Mac
+.DS_Store
+
+# FAISS DB (optional, usually ignore)
+medical_db/
+
+# HuggingFace cache
+.cache/
