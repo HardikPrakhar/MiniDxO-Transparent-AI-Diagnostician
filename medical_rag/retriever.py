@@ -7,7 +7,7 @@ def get_retriever():
     model_name="all-MiniLM-L6-v2"
 )
     db = FAISS.load_local(
-        "medical_db",
+        "../medical_db",
         embeddings,
         allow_dangerous_deserialization=True
     )
