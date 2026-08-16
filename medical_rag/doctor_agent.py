@@ -1,85 +1,42 @@
-from retriever import get_retriever
-from dotenv import load_dotenv
+import logging
 
-load_dotenv()
-
-import os
-
-from langchain_openai import ChatOpenAI
 from langchain_classic.memory import ConversationBufferMemory
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+from agents import run_agent_graph
 
-print(type(OPENROUTER_API_KEY))
-print(repr(OPENROUTER_API_KEY))
+logger = logging.getLogger("minidxo")
+logging.basicConfig(level=logging.INFO)
 
-# Memory
-memory = ConversationBufferMemory(
-    memory_key="history",
-    return_messages=False
-)
 
-llm = ChatOpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_API_KEY,
-    model="meta-llama/llama-3-8b-instruct",
-    temperature=0.3,
-    default_headers={
-        "HTTP-Referer": "http://localhost:8000",
-        "X-Title": "MiniDxO"
-    }
-)
+_sessions: dict[str, ConversationBufferMemory] = {}
 
-retriever = get_retriever()
 
-SYSTEM_PROMPT = """
-You are an AI medical assistant simulating a doctor.
+def get_memory(session_id: str) -> ConversationBufferMemory:
+    if session_id not in _sessions:
+        logger.info("Creating new memory for session %s", session_id)
+        _sessions[session_id] = ConversationBufferMemory(
+            memory_key="history", return_messages=False
+        )
+    return _sessions[session_id]
 
-Rules:
-- Ask follow-up questions if needed
-- Use past conversation
-- Use provided medical context
-- Do NOT give definitive diagnosis
-- Always include sources when explaining
-- Be cautious and safe
 
-Output format:
-1. Follow-up Questions (if needed)
-2. Possible Conditions
-3. Explanation (with sources)
-4. Advice
-"""
+def clear_memory(session_id: str) -> None:
+    if session_id in _sessions:
+        _sessions[session_id].clear()
 
-def generate_response(user_query: str):
-    docs = retriever.invoke(user_query)
 
-    context = "\n\n".join(
-        [
-            f"{doc.page_content}\n(Source: {doc.metadata.get('source', 'Unknown')})"
-            for doc in docs
-        ]
-    )
-
+def generate_response(user_query: str, session_id: str = "default") -> str:
+    memory = get_memory(session_id)
     history = memory.load_memory_variables({}).get("history", "")
 
-    final_prompt = f"""
-{SYSTEM_PROMPT}
+    try:
+        response_text = run_agent_graph(user_query=user_query, history=history)
+    except Exception:
+        logger.exception("Agent graph failed for session %s", session_id)
+        return (
+            "Sorry, something went wrong while processing that. "
+            "Please try again in a moment."
+        )
 
-Chat History:
-{history}
-
-Medical Context:
-{context}
-
-User Symptoms:
-{user_query}
-"""
-
-    response = llm.invoke(final_prompt)
-
-    memory.save_context(
-        {"input": user_query},
-        {"output": response.content}
-    )
-
-    return response.content
+    memory.save_context({"input": user_query}, {"output": response_text})
+    return response_text
